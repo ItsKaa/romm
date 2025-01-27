@@ -304,7 +304,11 @@ class IGDBBaseHandler(MetadataHandler):
         if not platform_igdb_id:
             return None
 
-        search_term = uc(search_term)
+        search_term_ascii = uc(search_term)
+        search_terms = [search_term_ascii]
+        if search_term_ascii != search_term:
+            search_terms += [search_term]
+
         if with_category:
             categories = (
                 GameCategory.EXPANDED_GAME,
@@ -338,35 +342,37 @@ class IGDBBaseHandler(MetadataHandler):
             )
 
         log.debug("Searching in games endpoint with category %s", category_filter)
-        roms = await self._request(
-            self.games_endpoint,
-            data=f'search "{search_term}"; fields {",".join(self.games_fields)}; where platforms=[{platform_igdb_id}] {category_filter};',
-        )
-        for rom in roms:
-            # Return early if an exact match is found.
-            if is_exact_match(rom, search_term):
-                return rom
-
-        log.debug("Searching expanded in search endpoint")
-        roms_expanded = await self._request(
-            self.search_endpoint,
-            data=f'fields {",".join(self.search_fields)}; where game.platforms=[{platform_igdb_id}] & (name ~ *"{search_term}"* | alternative_name ~ *"{search_term}"*);',
-        )
-        if roms_expanded:
-            log.debug(
-                "Searching expanded in games endpoint for expanded game %s",
-                roms_expanded[0]["game"],
-            )
-            extra_roms = await self._request(
+        for search in search_terms:
+            roms = await self._request(
                 self.games_endpoint,
-                f'fields {",".join(self.games_fields)}; where id={roms_expanded[0]["game"]["id"]};',
+                data=f'search "{search}"; fields {",".join(self.games_fields)}; where platforms=[{platform_igdb_id}] {category_filter};',
             )
-            for rom in extra_roms:
+            for rom in roms:
                 # Return early if an exact match is found.
-                if is_exact_match(rom, search_term):
+                if is_exact_match(rom, search):
                     return rom
 
-            roms.extend(extra_roms)
+        log.debug("Searching expanded in search endpoint")
+        for search in search_terms:
+            roms_expanded = await self._request(
+                self.search_endpoint,
+                data=f'fields {",".join(self.search_fields)}; where game.platforms=[{platform_igdb_id}] & (name ~ *"{search}"* | alternative_name ~ *"{search}"*);',
+            )
+            if roms_expanded:
+                log.debug(
+                    "Searching expanded in games endpoint for expanded game %s",
+                    roms_expanded[0]["game"],
+                )
+                extra_roms = await self._request(
+                    self.games_endpoint,
+                    f'fields {",".join(self.games_fields)}; where id={roms_expanded[0]["game"]["id"]};',
+                )
+                for rom in extra_roms:
+                    # Return early if an exact match is found.
+                    if is_exact_match(rom, search):
+                        return rom
+
+                roms.extend(extra_roms)
 
         return roms[0] if roms else None
 
