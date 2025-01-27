@@ -575,16 +575,26 @@ class IGDBBaseHandler(MetadataHandler):
         if not platform_igdb_id:
             return []
 
-        search_term = uc(search_term)
-        matched_roms = await self._request(
-            self.games_endpoint,
-            data=f'search "{search_term}"; fields {",".join(self.games_fields)}; where platforms=[{platform_igdb_id}];',
-        )
+        # First attempt to search the transliterated ASCII string,
+        # if that results nothing then attempt to search the original (unicode) string.
+        search_term_ascii = uc(search_term)
+        search_terms = [search_term_ascii]
+        if search_term_ascii != search_term:
+            search_terms += [search_term]
 
-        alternative_matched_roms = await self._request(
-            self.search_endpoint,
-            data=f'fields {",".join(self.search_fields)}; where game.platforms=[{platform_igdb_id}] & (name ~ *"{search_term}"* | alternative_name ~ *"{search_term}"*);',
-        )
+        matched_roms = None
+        alternative_matched_roms = None
+        for search in search_terms:
+            if not matched_roms:
+                matched_roms = await self._request(
+                    self.games_endpoint,
+                    data=f'search "*{search}*"; fields {",".join(self.games_fields)}; where platforms=[{platform_igdb_id}];',
+                )
+            if not alternative_matched_roms:
+                alternative_matched_roms = await self._request(
+                    self.search_endpoint,
+                    data=f'fields {",".join(self.search_fields)}; where game.platforms=[{platform_igdb_id}] & (name ~ *"{search}"* | alternative_name ~ *"{search}"*);',
+                )
 
         if alternative_matched_roms:
             alternative_roms_ids = []
